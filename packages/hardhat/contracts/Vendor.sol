@@ -1,71 +1,47 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.4;
+import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./MyToken.sol";
+import "./Token.sol";
 
 contract Vendor is Ownable {
-    event BuyTokens(address buyer, uint256 amountOfETH, uint256 amountOfTokens);
-    event SellTokens(
-        address seller,
-        uint256 amountOfETH,
-        uint256 amountOfTokens
-    );
-
     uint256 public constant tokensPerEth = 100;
-    MyToken public myToken;
+
+    event BuyTokens(address buyer, uint256 amountOfWei, uint256 amountOfTokens);
+    event SellTokens(address seller, uint256 amount);
+
+    Token public token;
 
     constructor(address tokenAddress) {
-        myToken = MyToken(tokenAddress);
+        token = Token(tokenAddress);
     }
 
-    // create a payable buyTokens() function:
-    function buyTokens() public payable {
-        require(msg.value > 0, "Send ETH to buy some tokens");
+    function buyTokens() external payable {
+        require(msg.value > 0, "No ETH was sent.");
+        uint256 amountOfTokens = (msg.value * tokensPerEth) / (10**18);
+        token.transfer(msg.sender, amountOfTokens);
 
-        uint256 tknsToTransfer = (msg.value) * tokensPerEth;
+        emit BuyTokens(msg.sender, msg.value, amountOfTokens);
+    }
 
-        uint256 vendorBalance = myToken.balanceOf(address(this));
+    function sellTokens(uint256 amount) external {
         require(
-            vendorBalance >= tknsToTransfer,
-            "Vendor contract has not enough tokens in its balance"
+            amount > 0,
+            "Amount of tokens for selling should be greater than 0."
         );
+        uint256 weiToSend = (amount * (10**18)) / tokensPerEth;
+        bool sent = token.transferFrom(msg.sender, address(this), amount);
+        require(sent, "Failed to sell tokens.");
+        (sent, ) = msg.sender.call{value: weiToSend}("");
+        require(sent, "Failed to sent ether.");
 
-        bool sent = myToken.transfer(msg.sender, tknsToTransfer);
-        require(sent, "Failed to transfer token to user");
-        emit BuyTokens(msg.sender, msg.value, tknsToTransfer);
+        emit SellTokens(msg.sender, amount);
     }
 
-    // create a sellTokens() function:
-    function sellTokens(uint256 amount) public {
-        require(amount > 0, "Specify an amount of tokens to sell");
-
-        uint256 ethToSend = amount / tokensPerEth;
-        require(
-            address(this).balance >= ethToSend,
-            "The vendor does not have the liquidity"
-        );
-
-        uint256 userBal = myToken.balanceOf(msg.sender);
-        require(userBal >= amount, "Cannot sell more coins than owned");
-
-        bool status = myToken.transferFrom(msg.sender, address(this), amount);
-        require(status, "Tokens did not transfer to the contract");
-
-        (status, ) = msg.sender.call{value: ethToSend}("");
-        require(status, "Failed to send eth for sold tokens");
-
-        emit SellTokens(msg.sender, ethToSend, amount);
-    }
-
-    // create a withdraw() function that lets the owner withdraw ETH
-    function withdraw() public onlyOwner {
-        uint256 ownerBalance = address(this).balance;
-        require(ownerBalance > 0, "Owner has not balance to withdraw");
-
-        (bool sent, ) = msg.sender.call{value: ownerBalance}("");
-        require(sent, "Failed to send user balance back to the owner");
-
-        payable(owner()).transfer(ownerBalance);
+    // withdrawal of all the Ether in the contract by the Owner
+    function withdraw() external onlyOwner {
+        (bool sent, ) = msg.sender.call{value: address(this).balance}("");
+        require(sent, "Failed to withdraw Ether.");
     }
 }
