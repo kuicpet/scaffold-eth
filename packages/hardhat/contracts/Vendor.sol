@@ -6,42 +6,43 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./Token.sol";
 
 contract Vendor is Ownable {
+    Token public token;
+    uint256 public amountOfEth;
+    uint256 public amountOfTokens;
     uint256 public constant tokensPerEth = 100;
 
-    event BuyTokens(address buyer, uint256 amountOfWei, uint256 amountOfTokens);
-    event SellTokens(address seller, uint256 amount);
-
-    Token public token;
+    event BuyTokens(address buyer, uint256 amountOfEth, uint256 amountOfTokens);
+    event SellTokens(
+        address seller,
+        uint256 amountOfEth,
+        uint256 amountOfTokens
+    );
 
     constructor(address tokenAddress) {
         token = Token(tokenAddress);
     }
 
-    function buyTokens() external payable {
-        require(msg.value > 0, "No ETH was sent.");
-        uint256 amountOfTokens = (msg.value * tokensPerEth) / (10**18);
+    // buyTokens
+    function buyTokens() public payable {
+        amountOfEth = msg.value;
+        amountOfTokens = amountOfEth * tokensPerEth;
         token.transfer(msg.sender, amountOfTokens);
-
-        emit BuyTokens(msg.sender, msg.value, amountOfTokens);
+        emit BuyTokens(msg.sender, amountOfEth, amountOfTokens);
     }
 
-    function sellTokens(uint256 amount) external {
-        require(
-            amount > 0,
-            "Amount of tokens for selling should be greater than 0."
+    // withDraw ETH
+    function withDraw() external onlyOwner {
+        payable(msg.sender).transfer(address(this).balance);
+    }
+
+    // sellTokens
+    function sellTokens(uint256 approvalAmount) public {
+        token.transferFrom(msg.sender, address(this), approvalAmount);
+        payable(msg.sender).transfer(approvalAmount / tokensPerEth);
+        emit SellTokens(
+            msg.sender,
+            approvalAmount / tokensPerEth,
+            approvalAmount
         );
-        uint256 weiToSend = (amount * (10**18)) / tokensPerEth;
-        bool sent = token.transferFrom(msg.sender, address(this), amount);
-        require(sent, "Failed to sell tokens.");
-        (sent, ) = msg.sender.call{value: weiToSend}("");
-        require(sent, "Failed to sent ether.");
-
-        emit SellTokens(msg.sender, amount);
-    }
-
-    // withdrawal of all the Ether in the contract by the Owner
-    function withdraw() external onlyOwner {
-        (bool sent, ) = msg.sender.call{value: address(this).balance}("");
-        require(sent, "Failed to withdraw Ether.");
     }
 }
